@@ -1,0 +1,51 @@
+name: MP4 zu MP3
+
+# Wandelt hochgeladene .mp4-Dateien automatisch in .mp3 um (nur Ton) und
+# entfernt danach die .mp4. Läuft bei jedem Upload einer .mp4 und lässt sich
+# über "Run workflow" (workflow_dispatch) rückwirkend auf alle vorhandenen
+# .mp4-Dateien anwenden.
+on:
+  push:
+    paths:
+      - "**.mp4"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mp4-to-mp3
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ffmpeg installieren
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Konvertieren
+        run: |
+          set -e
+          shopt -s nullglob globstar
+          for f in ./**/*.mp4; do
+            mp3="${f%.mp4}.mp3"
+            if [ ! -f "$mp3" ]; then
+              echo "konvertiere: $f -> $mp3"
+              ffmpeg -y -i "$f" -vn -acodec libmp3lame -q:a 2 "$mp3" < /dev/null
+            else
+              echo "vorhanden, überspringe Konvertierung: $mp3"
+            fi
+            git rm -q -- "$f"
+          done
+
+      - name: Commit
+        run: |
+          git config user.name "mp3-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          # [skip ci] verhindert eine erneute Auslösung durch den eigenen Commit.
+          git diff --cached --quiet || git commit -m "MP4 zu MP3 konvertiert [skip ci]"
+          git push
